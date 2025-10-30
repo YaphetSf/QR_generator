@@ -37,6 +37,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--quiet-zone", type=int, default=4, help="Quiet zone (border) in modules")
     parser.add_argument("--force", action="store_true", help="Overwrite if output file already exists")
+    # Enhancements
+    parser.add_argument(
+        "--logo-name",
+        help="Logo file name (or stem) to search under the Logos/ folder (e.g. 'mybrand' or 'mybrand.png')",
+    )
+    parser.add_argument(
+        "--caption",
+        help="Optional caption text to draw at the bottom of the image",
+    )
     return parser.parse_args()
 
 
@@ -92,6 +101,90 @@ def build_qr_image(url: str, error_correction_key: str, quiet_zone: int, target_
     return img
 
 
+def find_logo_path(repo_root: str, logo_name: str | None) -> str | None:
+    if not logo_name:
+        return None
+    logos_dir = os.path.join(repo_root, "Logos")
+    if not os.path.isdir(logos_dir):
+        return None
+
+    # Normalize input: accept with or without extension
+    desired_stem = os.path.splitext(logo_name)[0].lower()
+    desired_filename = logo_name.lower()
+    candidates = []
+    try:
+        for entry in os.listdir(logos_dir):
+            entry_lower = entry.lower()
+            stem_lower = os.path.splitext(entry_lower)[0]
+            if entry_lower == desired_filename or stem_lower == desired_stem:
+                candidates.append(os.path.join(logos_dir, entry))
+    except Exception:
+        return None
+
+    # Prefer common image extensions
+    def sort_key(p: str) -> int:
+        ext = os.path.splitext(p)[1].lower()
+        order = {".png": 0, ".jpg": 1, ".jpeg": 1, ".webp": 2, ".bmp": 3}
+        return order.get(ext, 9)
+
+    candidates.sort(key=sort_key)
+    return candidates[0] if candidates else None
+
+
+def overlay_logo(base_img, logo_path: str):
+    try:
+        from PIL import Image
+        logo = Image.open(logo_path).convert("RGBA")
+        base_img = base_img.convert("RGBA")
+
+        # Scale logo to ~20% of QR width
+        qr_w, qr_h = base_img.size
+        max_logo_w = max(1, int(qr_w * 0.2))
+        aspect = logo.width / max(logo.height, 1)
+        new_w = max_logo_w
+        new_h = int(new_w / max(aspect, 1e-6))
+        logo = logo.resize((new_w, new_h), resample=Image.LANCZOS)
+
+        # Center paste
+        pos = ((qr_w - new_w) // 2, (qr_h - new_h) // 2)
+        base_img.alpha_composite(logo, dest=pos)
+        return base_img
+    except Exception:
+        return base_img
+
+
+def add_caption(base_img, caption: str | None):
+    if not caption:
+        return base_img
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        base_img = base_img.convert("RGBA")
+        w, h = base_img.size
+        extra_h = max(40, h // 6)  # add ~16% space, min 40px
+
+        canvas = Image.new("RGBA", (w, h + extra_h), (255, 255, 255, 255))
+        canvas.paste(base_img, (0, 0))
+
+        draw = ImageDraw.Draw(canvas)
+        # Try default font; system fonts may not be available in all envs
+        try:
+            font = ImageFont.load_default()
+        except Exception:
+            font = None
+
+        text = str(caption)
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+        x = max(0, (w - text_w) // 2)
+        y = h + max(0, (extra_h - text_h) // 2)
+
+        draw.text((x, y), text, fill=(0, 0, 0, 255), font=font)
+        return canvas.convert("RGB")
+    except Exception:
+        return base_img
+
+
 def main() -> int:
     args = parse_args()
     url = args.url_flag or args.url
@@ -115,6 +208,15 @@ def main() -> int:
 
     try:
         img = build_qr_image(url, args.ec, args.quiet_zone, args.size)
+
+        # Optional logo overlay from Logos/
+        logo_path = find_logo_path(repo_root, args.logo_name)
+        if logo_path:
+            img = overlay_logo(img, logo_path)
+
+        # Optional caption text
+        img = add_caption(img, args.caption)
+
         img.save(output_path)
     except Exception as e:  # pragma: no cover
         print(f"Failed to generate QR code: {e}", file=sys.stderr)
