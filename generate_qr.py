@@ -46,6 +46,11 @@ def parse_args() -> argparse.Namespace:
         "--caption",
         help="Optional caption text to draw at the bottom of the image",
     )
+    parser.add_argument(
+        "--caption-size",
+        type=int,
+        help="Optional caption font size in pixels (auto-scales if omitted)",
+    )
     return parser.parse_args()
 
 
@@ -153,33 +158,66 @@ def overlay_logo(base_img, logo_path: str):
         return base_img
 
 
-def add_caption(base_img, caption: str | None):
+def _pick_truetype_font(preferred_size: int):
+    try:
+        from PIL import ImageFont
+    except Exception:
+        return None
+
+    # Common macOS and generic candidates
+    candidates = [
+        "/Library/Fonts/Arial.ttf",
+        "/Library/Fonts/Helvetica.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Helvetica.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "DejaVuSans.ttf",
+    ]
+    for path in candidates:
+        try:
+            if os.path.exists(path):
+                return ImageFont.truetype(path, preferred_size)
+            # Also allow PIL to resolve by name in its font path
+            if os.path.sep not in path:
+                return ImageFont.truetype(path, preferred_size)
+        except Exception:
+            continue
+    return None
+
+
+def add_caption(base_img, caption: str | None, caption_size: int | None = None):
     if not caption:
         return base_img
     try:
         from PIL import Image, ImageDraw, ImageFont
         base_img = base_img.convert("RGBA")
         w, h = base_img.size
-        extra_h = max(40, h // 6)  # add ~16% space, min 40px
+        # Determine font size relative to image width if not provided
+        font_px = caption_size if caption_size and caption_size > 0 else max(20, int(w * 0.08))
+        font = _pick_truetype_font(font_px)
+        if font is None:
+            # Fallback to default bitmap font
+            font = ImageFont.load_default()
+            # Best-effort scale calculation based on default bbox measured later
+
+        # Pre-measure text to allocate exact space with padding
+        tmp_img = Image.new("RGBA", (w, h), (255, 255, 255, 0))
+        tmp_draw = ImageDraw.Draw(tmp_img)
+        text = str(caption)
+        bbox = tmp_draw.textbbox((0, 0), text, font=font, stroke_width=2)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+        padding_y = max(12, int((font_px if caption_size else w * 0.02)))
+        extra_h = max(text_h + padding_y * 2, 40)
 
         canvas = Image.new("RGBA", (w, h + extra_h), (255, 255, 255, 255))
         canvas.paste(base_img, (0, 0))
 
         draw = ImageDraw.Draw(canvas)
-        # Try default font; system fonts may not be available in all envs
-        try:
-            font = ImageFont.load_default()
-        except Exception:
-            font = None
-
-        text = str(caption)
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
         x = max(0, (w - text_w) // 2)
         y = h + max(0, (extra_h - text_h) // 2)
-
-        draw.text((x, y), text, fill=(0, 0, 0, 255), font=font)
+        # Draw with a subtle stroke for readability
+        draw.text((x, y), text, fill=(0, 0, 0, 255), font=font, stroke_width=2, stroke_fill=(255, 255, 255, 255))
         return canvas.convert("RGB")
     except Exception:
         return base_img
@@ -214,8 +252,8 @@ def main() -> int:
         if logo_path:
             img = overlay_logo(img, logo_path)
 
-        # Optional caption text
-        img = add_caption(img, args.caption)
+        # Optional caption text (auto-sizing with optional override)
+        img = add_caption(img, args.caption, args.caption_size)
 
         img.save(output_path)
     except Exception as e:  # pragma: no cover

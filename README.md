@@ -50,6 +50,9 @@ options:
   --ec {L,M,Q,H}        Error correction level (default: M)
   --quiet-zone N        Quiet zone in modules (default: 4)
   --force               Overwrite existing file
+  --logo-name NAME      Logo file to search in Logos/ (with or without extension)
+  --caption TEXT        Bottom caption text
+  --caption-size PX     Caption font size in pixels (auto if omitted)
 ```
 
 Example URL above references the MagicShotBox app on the App Store: `https://apps.apple.com/us/app/magicshotbox/id6748461314`.
