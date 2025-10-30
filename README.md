@@ -33,9 +33,6 @@ uv run python generate_qr.py --url "https://apps.apple.com/us/app/magicshotbox/i
 The script prints the output path (PNG) and saves it under `Outputs/`.
 
 
-(QR_generator) dingzhong@Mac QR_generator % uv run generate_qr.py --url "https://apps.apple.com/us/app/magicshotbox/id6748461314" --logo-name logo3.png --caption "Scan the QR code to download MagicShotBox APP"
-
-
 ### Options
 
 ```bash
@@ -56,3 +53,5 @@ options:
 ```
 
 Example URL above references the MagicShotBox app on the App Store: `https://apps.apple.com/us/app/magicshotbox/id6748461314`.
+
+(QR_generator) dingzhong@Mac QR_generator % uv run generate_qr.py --url "https://apps.apple.com/us/app/magicshotbox/id6748461314" --logo-name logo3.png --caption "Scan the QR code to download MagicShotBox APP"
